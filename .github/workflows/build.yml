@@ -26,7 +26,6 @@ jobs:
       VERSION: ${{ github.event.inputs.version }}
       PUBBODY: ${{ github.event.inputs.pubbody }}
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      PNPM_ONLY_BUILT_DEPENDENCIES: false   # 允许 sharp 等包运行安装脚本
 
     steps:
       - name: Checkout Repository
@@ -60,7 +59,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-
 
-      # ---------- 修复：允许 sharp 构建 ----------
+      # ---------- 关键修复：明确批准 sharp 的构建脚本 ----------
+      - name: Approve sharp build scripts
+        run: pnpm approve-builds sharp
+
       - name: Install dependencies
         run: |
           PNPM_SUPPLY_CHAIN=off pnpm install --frozen-lockfile --config.ignore-scripts=false
