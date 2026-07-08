@@ -1,23 +1,103 @@
-steps:
-  - name: Checkout Repository
-    uses: actions/checkout@v6  # 从 v4 升级到 v6
+name: Android Build
 
-  - name: Set up JDK 17
-    uses: actions/setup-java@v4  # 从 v3 升级到 v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
-      cache: gradle
+on:
+  workflow_dispatch:
+    # 手动触发时，要求输入版本信息，避免环境变量缺失
+    inputs:
+      name:
+        description: 'App name (用于 Release 标题和文件名)'
+        required: true
+        default: 'MyApp'
+      version:
+        description: '版本号 (如 1.0.0)'
+        required: true
+        default: '1.0.0'
+      pubbody:
+        description: 'Release 说明'
+        required: false
+        default: 'Automated build'
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v3  # 暂时保持，留意后续更新
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
 
-  - name: Set up Node.js
-    uses: actions/setup-node@v6  # 从 v4 升级到 v6
-    with:
-      node-version: 22  # 你的项目构建环境仍可使用 Node.js 22
+    # 环境变量：用于后续步骤引用
+    env:
+      NAME: ${{ github.event.inputs.name }}
+      VERSION: ${{ github.event.inputs.version }}
+      PUBBODY: ${{ github.event.inputs.pubbody }}
+      # 强制旧版 Actions 在 Node.js 24 下运行（临时措施，但推荐升级 Action 版本）
+      # 若你已升级所有 Action 到兼容版本，可删除此行
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-  - name: Set up pnpm
-    uses: pnpm/action-setup@v6  # 从 v4 升级到 v6，这是关键！
-    with:
-      version: latest
+    steps:
+      # ---------- 1. 检出代码 ----------
+      - name: Checkout Repository
+        uses: actions/checkout@v6   # 升级到 v6，支持 Node 24
+
+      # ---------- 2. 设置 JDK ----------
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4   # 升级到 v4，支持 Node 24
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: gradle
+
+      # ---------- 3. 设置 Android SDK ----------
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3   # 暂未更新，留意后续版本
+
+      # ---------- 4. 设置 Node.js ----------
+      - name: Set up Node.js
+        uses: actions/setup-node@v6   # 升级到 v6，支持 Node 24
+        with:
+          node-version: 22           # 构建环境使用 Node 22（与本地一致）
+          # 注意：不在这里缓存 pnpm，因为 pnpm 尚未安装，下面单独处理缓存
+
+      # ---------- 5. 设置 pnpm ----------
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6   # 升级到 v6，专为 Node 24 优化
+        with:
+          version: latest            # 或固定为 11（但需确保与 Node 22 兼容）
+
+      # ---------- 6. 缓存 pnpm 依赖（可选但推荐） ----------
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      # ---------- 7. 安装依赖及初始化 ----------
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile   # 确保 lockfile 一致
+          pnpm pp:worker                    # 你的自定义脚本
+
+      # ---------- 8. 赋予 Gradle 执行权限 ----------
+      - name: Grant Execute Permission for Gradle
+        run: chmod +x ./gradlew
+
+      # ---------- 9. 构建 Debug APK ----------
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      # ---------- 10. 重命名 APK ----------
+      - name: Rename APK file
+        run: |
+          cd app/build/outputs/apk/debug/
+          mv app-debug.apk ${{ env.NAME }}-v${{ env.VERSION }}.apk
+
+      # ---------- 11. 创建 GitHub Release ----------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2   # 该 Action 基于 Node 20，但可通过 FORCE 变量运行
+        with:
+          files: app/build/outputs/apk/debug/*.apk
+          tag_name: '${{ env.NAME }}-v${{ env.VERSION }}'   # 使用更有意义的 tag
+          name: '${{ env.NAME }} v${{ env.VERSION }}'
+          body: '${{ env.PUBBODY }}'
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
