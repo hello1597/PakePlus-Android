@@ -21,22 +21,23 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
 
-    # 环境变量：从输入获取，供后续步骤使用
     env:
       NAME: ${{ github.event.inputs.name }}
       VERSION: ${{ github.event.inputs.version }}
       PUBBODY: ${{ github.event.inputs.pubbody }}
-      # 临时强制 Node.js 20 的 Actions 在 Node 24 下运行（安全性兜底，可删除）
+      # 临时强制 Node.js 20 的 Actions 在 Node 24 下运行（兜底）
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # 明确允许 pnpm 运行构建脚本（安全策略覆盖）
+      PNPM_IGNORE_SCRIPTS: false
 
     steps:
       # ---------- 1. 检出代码 ----------
       - name: Checkout Repository
-        uses: actions/checkout@v6   # 已支持 Node 24
+        uses: actions/checkout@v6
 
       # ---------- 2. 设置 JDK ----------
       - name: Set up JDK 17
-        uses: actions/setup-java@v5   # 升级到 v5，支持 Node 24
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -44,23 +45,23 @@ jobs:
 
       # ---------- 3. 设置 Android SDK ----------
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4   # 升级到 v4，支持 Node 24
+        uses: android-actions/setup-android@v4
 
       # ---------- 4. 设置 Node.js ----------
       - name: Set up Node.js
-        uses: actions/setup-node@v6   # 支持 Node 24
+        uses: actions/setup-node@v6
         with:
-          node-version: 22           # 与本地开发环境一致
+          node-version: 22
 
       # ---------- 5. 设置 pnpm ----------
       - name: Set up pnpm
-        uses: pnpm/action-setup@v6   # 升级到 v6，支持 Node 24
+        uses: pnpm/action-setup@v6
         with:
-          version: latest            # 或固定版本如 '11'
+          version: latest
 
       # ---------- 6. 缓存 pnpm 依赖 ----------
       - name: Cache pnpm store
-        uses: actions/cache@v5       # 升级到 v5，支持 Node 24
+        uses: actions/cache@v5
         with:
           path: ~/.pnpm-store
           key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
@@ -70,8 +71,9 @@ jobs:
       # ---------- 7. 安装依赖及初始化 ----------
       - name: Install dependencies
         run: |
-          pnpm install --frozen-lockfile
-          pnpm pp:worker   # 你的自定义脚本
+          # 强制运行构建脚本（sharp 需要编译）
+          pnpm install --frozen-lockfile --config.ignore-scripts=false
+          pnpm pp:worker
 
       # ---------- 8. 赋予 Gradle 执行权限 ----------
       - name: Grant Execute Permission for Gradle
@@ -89,7 +91,7 @@ jobs:
 
       # ---------- 11. 创建 GitHub Release ----------
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2   # 该 Action 仍基于 Node 20，但由 FORCE 变量支持运行
+        uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/debug/*.apk
           tag_name: '${{ env.NAME }}-v${{ env.VERSION }}'
